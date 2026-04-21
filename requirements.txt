@@ -1,0 +1,40 @@
+# ──────────────────────────────────────────────────────────────────
+# 高级 CNN 项目依赖
+# 安装命令：pip install -r requirements.txt
+#
+# GPU 加速（可选）：访问 https://pytorch.org/get-started/locally/
+# 选择 CUDA 版本安装，替换下面的 torch/torchvision
+# ──────────────────────────────────────────────────────────────────
+
+# 深度学习核心
+#torch==2.2.2
+#torchvision==0.17.2
+
+# 图像处理（Grad-CAM 热力图叠加）
+#opencv-python==4.9.0.80
+
+# 数据分析 & 混淆矩阵
+#scikit-learn==1.4.2
+#numpy==1.26.4
+
+# 可视化
+#matplotlib==3.8.4
+#seaborn==0.13.2
+
+
+
+
+# 深度学习核心（支持新 Python）
+torch>=2.9.0
+torchvision>=0.24.0
+
+# 图像处理
+opencv-python>=4.10.0
+
+# 数据分析
+scikit-learn>=1.5.0
+numpy>=2.0.0
+
+# 可视化
+matplotlib>=3.9.0
+seaborn>=0.13.2
