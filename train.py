@@ -30,15 +30,15 @@ from model import ResNet18
 # ─────────────────────────────────────────────────────
 CFG = {
     "seed": 42,  # 随机种子，确保实验可重复性
-    "batch_size": 128,  # 每个训练批次包含的图像数量
+    "batch_size": 256,  # 每个训练批次包含的图像数量
     "epochs": 50,  # 总共训练 50 轮
-    "lr": 0.1,  # 初始学习率，对于带动量的 SGD 来说 0.1 是经典起始值
+    "lr": 0.15,  # 初始学习率，对于带动量的 SGD 来说 0.1 是经典起始值
     "momentum": 0.9,  # 动量系数，加速梯度下降并减少振荡
     "weight_decay": 5e-4,  # L2 正则化权重衰减，防止模型过拟合
     "warmup_epochs": 5,  # 前 5 轮进行学习率预热（Warmup）
     "label_smooth": 0.1,  # 标签平滑系数，防止模型过度拟合独热标签（One-hot）
     "num_classes": 10,  # CIFAR-10 数据集有 10 个类别
-    "num_workers": 2,  # 加载数据时的并行线程数
+    "num_workers": 8,  # 加载数据时的并行线程数
     "device": None,  # 运行设备（将在 resolve_device 函数中确定）
     "save_dir": "./checkpoints",  # 权重保存目录
     "history_file": "training_history.json",
@@ -63,11 +63,8 @@ def resolve_device():
     自动检测当前环境的最优计算设备。
     优先级：NVIDIA GPU (CUDA) > Apple Silicon GPU (MPS) > CPU
     """
-    if torch.cuda.is_available():
-        return "cuda"
-    if torch.backends.mps.is_available():
-        return "mps"
-    return "cpu"
+    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+    return device
 
 
 # ─────────────────────────────────────────────────────
@@ -111,6 +108,8 @@ train_transform = transforms.Compose([
     transforms.Normalize(MEAN, STD),  # 标准化处理
     Cutout(n_holes=1, length=16),  # 应用 Cutout 遮挡
 ])
+
+
 
 # 测试集/验证集转换：不进行随机增强，仅需保持数据分布与训练集一致
 test_transform = transforms.Compose([
@@ -206,52 +205,113 @@ def build_checkpoint_payload(epoch, val_acc):
         "num_classes": CFG["num_classes"],
     }
 
+#
+# def run_epoch(loader, train=True):
+#     """
+#     运行一个完整的 Epoch（训练或验证）。
+#     :param loader: 数据加载器
+#     :param train: True 为训练模式，False 为评估模式
+#     """
+#     global model, optimizer, criterion, scaler
+#     model.train() if train else model.eval()
+#
+#     total_loss, top1_sum, top5_sum, count = 0.0, 0.0, 0.0, 0
+#
+#     # 自动混合精度（AMP）目前仅在 CUDA 设备上加速效果明显
+#     device_type = "mps" if "mps" in str(CFG["device"]) else "cpu"
+#
+#     for imgs, labels in loader:
+#         imgs, labels = imgs.to(CFG["device"]), labels.to(CFG["device"])
+#
+#         # 使用 autocast 开启自动混合精度训练（FP32/FP16 自动切换）
+#         # 这在现代 NVIDIA GPU 上能显著提高吞吐量
+#         with autocast(enabled=(device_type == "cuda")):
+#             logits = model(imgs)  # 前向传播
+#             loss = criterion(logits, labels)  # 计算损失
+#
+#         if train:
+#             optimizer.zero_grad(set_to_none=True)  # 梯度清零，set_to_none 更快
+#             scaler.scale(loss).backward()  # 缩放损失并进行反向传播
+#             scaler.unscale_(optimizer)  # 在梯度裁剪前反缩放
+#             nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # 梯度裁剪，防止梯度爆炸
+#             scaler.step(optimizer)  # 更新权重
+#             scaler.update()  # 更新缩放器权重
+#
+#         # 累计统计数据
+#         t1, t5 = topk_accuracy(logits, labels, topk=(1, 5))
+#         total_loss += loss.item() * labels.size(0)
+#         top1_sum += t1 * labels.size(0) / 100
+#         top5_sum += t5 * labels.size(0) / 100
+#         count += labels.size(0)
+#
+#     # 返回平均损失、平均 Top-1 准确率和平均 Top-5 准确率
+#     return total_loss / count, 100 * top1_sum / count, 100 * top5_sum / count
+
+
+# ─────────────────────────────────────────────────────
+# 4. 主程序流程
+# ─────────────────────────────────────────────────────
+
+import torch
+import torch.nn as nn
+
 
 def run_epoch(loader, train=True):
-    """
-    运行一个完整的 Epoch（训练或验证）。
-    :param loader: 数据加载器
-    :param train: True 为训练模式，False 为评估模式
-    """
     global model, optimizer, criterion, scaler
     model.train() if train else model.eval()
 
     total_loss, top1_sum, top5_sum, count = 0.0, 0.0, 0.0, 0
 
-    # 自动混合精度（AMP）目前仅在 CUDA 设备上加速效果明显
-    device_type = "cuda" if "cuda" in str(CFG["device"]) else "cpu"
+    # 1. 精准识别当前设备类型
+    device_str = str(CFG["device"])
+    is_cuda = "cuda" in device_str
+    is_mps = "mps" in device_str
 
     for imgs, labels in loader:
         imgs, labels = imgs.to(CFG["device"]), labels.to(CFG["device"])
 
-        # 使用 autocast 开启自动混合精度训练（FP32/FP16 自动切换）
-        # 这在现代 NVIDIA GPU 上能显著提高吞吐量
-        with autocast(enabled=(device_type == "cuda")):
-            logits = model(imgs)  # 前向传播
-            loss = criterion(logits, labels)  # 计算损失
+        # 2. 前向传播：区别对待
+        if is_cuda:
+            # NVIDIA GPU 使用专门的 cuda autocast
+            with torch.autocast(device_type="cuda"):
+                logits = model(imgs)
+                loss = criterion(logits, labels)
+        elif is_mps:
+            # Apple Silicon 使用 mps autocast (加速前向传播)
+            with torch.autocast(device_type="mps"):
+                logits = model(imgs)
+                loss = criterion(logits, labels)
+        else:
+            # CPU 模式，普通计算
+            logits = model(imgs)
+            loss = criterion(logits, labels)
 
+        # 3. 反向传播：Mac 剔除 Scaler
         if train:
-            optimizer.zero_grad(set_to_none=True)  # 梯度清零，set_to_none 更快
-            scaler.scale(loss).backward()  # 缩放损失并进行反向传播
-            scaler.unscale_(optimizer)  # 在梯度裁剪前反缩放
-            nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # 梯度裁剪，防止梯度爆炸
-            scaler.step(optimizer)  # 更新权重
-            scaler.update()  # 更新缩放器权重
+            optimizer.zero_grad(set_to_none=True)
 
-        # 累计统计数据
+            if is_cuda:
+                # NVIDIA 专属路线：缩放 -> 反向传播 -> 裁剪 -> 更新
+                scaler.scale(loss).backward()
+                scaler.unscale_(optimizer)
+                nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                # Apple M5 Pro 和 CPU 专属路线：直接计算，大道至简！
+                loss.backward()
+                nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                optimizer.step()
+
+        # ----------------- 累计统计数据（保持原样即可）-----------------
         t1, t5 = topk_accuracy(logits, labels, topk=(1, 5))
         total_loss += loss.item() * labels.size(0)
         top1_sum += t1 * labels.size(0) / 100
         top5_sum += t5 * labels.size(0) / 100
         count += labels.size(0)
 
-    # 返回平均损失、平均 Top-1 准确率和平均 Top-5 准确率
     return total_loss / count, 100 * top1_sum / count, 100 * top5_sum / count
 
-
-# ─────────────────────────────────────────────────────
-# 4. 主程序流程
-# ─────────────────────────────────────────────────────
 def main():
     global model, optimizer, scheduler, criterion, scaler
 
@@ -266,6 +326,7 @@ def main():
     # 2. 数据准备
     # 加载训练集并进行随机分割，分出 10% 作为验证集
     full_train = datasets.CIFAR10("./data", train=True, download=True, transform=train_transform)
+
     test_set = datasets.CIFAR10("./data", train=False, download=True, transform=test_transform)
 
     val_size = int(0.1 * len(full_train))  # 5000 张
@@ -273,11 +334,14 @@ def main():
     train_set, val_set = random_split(full_train, [train_size, val_size],
                                       generator=torch.Generator().manual_seed(CFG["seed"]))
 
+
     # 创建 DataLoader，pin_memory=True 能加速数据从 CPU 到 GPU 的传输
     train_loader = DataLoader(train_set, CFG["batch_size"], shuffle=True,
                               num_workers=CFG["num_workers"], pin_memory=use_cuda)
+
     val_loader = DataLoader(val_set, CFG["batch_size"], shuffle=False,
                             num_workers=CFG["num_workers"], pin_memory=use_cuda)
+
     test_loader = DataLoader(test_set, CFG["batch_size"], shuffle=False,
                              num_workers=CFG["num_workers"], pin_memory=use_cuda)
 
@@ -286,14 +350,19 @@ def main():
     # 3. 初始化模型、优化器和调度器
     model = ResNet18(num_classes=CFG["num_classes"]).to(CFG["device"])
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+    # 这一行是在计算模型的 **“体量” ** ，即：有多少个参数是需要通过学习来更新的？
+
     print(f"▶ ResNet-18 可训练参数量: {total_params / 1e6:.2f}M\n")
 
     criterion = LabelSmoothingCrossEntropy(CFG["label_smooth"])
+
     # Nesterov 动量 SGD 是训练图像分类模型的强力选择
     optimizer = optim.SGD(model.parameters(), lr=CFG["lr"],
                           momentum=CFG["momentum"], weight_decay=CFG["weight_decay"],
                           nesterov=True)
     # 使用余弦退火算法动态调整学习率，从初始 LR 降至 1e-5
+
     scheduler = optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=CFG["epochs"] - CFG["warmup_epochs"], eta_min=1e-5)
     scaler = GradScaler(enabled=use_cuda)  # 混合精度梯度缩放器
