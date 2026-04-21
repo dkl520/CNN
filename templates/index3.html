@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CNN 图片分类演示</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #020c1b;
+      --glass: rgba(6, 18, 42, 0.62);
+      --glass-2: rgba(255, 255, 255, 0.03);
+      --border: rgba(96, 175, 230, 0.14);
+      --border-h: rgba(96, 175, 230, 0.32);
+      --ink: #ccd6f6;
+      --muted: #7a91b8;
+      --cyan: #38bdf8;
+      --violet: #818cf8;
+      --pink: #e879f9;
+      --line: rgba(96, 175, 230, 0.10);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'DM Sans', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ─── WebGL canvas ─── */
+    #bg-canvas {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    /* ─── Page layout ─── */
+    .page {
+      position: relative;
+      z-index: 1;
+      width: min(1180px, calc(100% - 40px));
+      margin: 40px auto;
+      display: grid;
+      grid-template-columns: 390px 1fr;
+      gap: 24px;
+      align-items: start;
+    }
+
+    /* ─── Glass card ─── */
+    .card {
+      background: var(--glass);
+      border: 1px solid var(--border);
+      border-radius: 28px;
+      backdrop-filter: blur(32px) saturate(180%);
+      -webkit-backdrop-filter: blur(32px) saturate(180%);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.06),
+        inset 0 -1px 0 rgba(0,0,0,0.2),
+        0 40px 80px rgba(0,0,0,0.55),
+        0 0 0 0.5px rgba(0,0,0,0.4);
+      padding: 32px;
+      transition: border-color 0.35s ease;
+      animation: fadeUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+
+    .card.content { animation-delay: 0.12s; }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(28px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .card:hover { border-color: var(--border-h); }
+
+    /* ─── Badge ─── */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 16px;
+      border-radius: 999px;
+      background: rgba(56, 189, 248, 0.10);
+      border: 1px solid rgba(56, 189, 248, 0.22);
+      color: var(--cyan);
+      font-size: 12.5px;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      margin-bottom: 22px;
+    }
+
+    .badge-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--cyan);
+      box-shadow: 0 0 8px var(--cyan);
+      animation: blink 2.2s ease-in-out infinite;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.35; }
+    }
+
+    /* ─── Typography ─── */
+    h1 {
+      font-family: 'Syne', sans-serif;
+      font-size: clamp(28px, 3.2vw, 44px);
+      font-weight: 800;
+      line-height: 1.08;
+      margin-bottom: 14px;
+      background: linear-gradient(140deg, #e8f1ff 0%, var(--cyan) 60%, var(--violet) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    h2 {
+      font-family: 'Syne', sans-serif;
+      font-size: 20px;
+      font-weight: 700;
+      color: #d0deff;
+    }
+
+    .lead {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.75;
+    }
+
+    /* ─── Upload box ─── */
+    .upload-box {
+      margin-top: 26px;
+      padding: 22px;
+      border: 1px dashed rgba(56, 189, 248, 0.22);
+      border-radius: 20px;
+      background: rgba(56, 189, 248, 0.035);
+      transition: border-color 0.3s, background 0.3s;
+    }
+
+    .upload-box:hover {
+      border-color: rgba(56, 189, 248, 0.42);
+      background: rgba(56, 189, 248, 0.065);
+    }
+
+    input[type="file"] {
+      width: 100%;
+      margin-bottom: 16px;
+      color: var(--muted);
+      font-size: 13px;
+      font-family: 'DM Sans', sans-serif;
+    }
+
+    input[type="file"]::file-selector-button {
+      padding: 7px 14px;
+      border-radius: 9px;
+      border: 1px solid rgba(56, 189, 248, 0.28);
+      background: rgba(56, 189, 248, 0.10);
+      color: var(--cyan);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 12.5px;
+      font-weight: 500;
+      cursor: pointer;
+      margin-right: 10px;
+      transition: background 0.2s, border-color 0.2s;
+    }
+
+    input[type="file"]::file-selector-button:hover {
+      background: rgba(56, 189, 248, 0.2);
+      border-color: rgba(56, 189, 248, 0.5);
+    }
+
+    /* ─── Button ─── */
+    button {
+      width: 100%;
+      border: none;
+      border-radius: 14px;
+      padding: 14px 18px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 15px;
+      font-weight: 500;
+      color: #fff;
+      background: linear-gradient(130deg, #0ea5c9 0%, #6366f1 100%);
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+      transition: opacity 0.2s, transform 0.15s, box-shadow 0.25s;
+      box-shadow: 0 4px 20px rgba(14, 165, 201, 0.28), 0 0 0 1px rgba(255,255,255,0.05) inset;
+    }
+
+    button::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, rgba(255,255,255,0.12) 0%, transparent 55%);
+      border-radius: inherit;
+    }
+
+    button:hover:not(:disabled) {
+      opacity: 0.92;
+      transform: translateY(-2px);
+      box-shadow: 0 10px 32px rgba(14, 165, 201, 0.4), 0 0 0 1px rgba(255,255,255,0.08) inset;
+    }
+
+    button:active:not(:disabled) { transform: translateY(0); }
+
+    button:disabled {
+      opacity: 0.32;
+      cursor: not-allowed;
+    }
+
+    /* ─── Status & preview ─── */
+    .status {
+      min-height: 20px;
+      margin-top: 12px;
+      font-size: 12.5px;
+      color: var(--muted);
+      transition: color 0.2s;
+    }
+
+    .status.error { color: #f87171; }
+
+    .preview {
+      margin-top: 22px;
+      width: 100%;
+      aspect-ratio: 1;
+      border-radius: 18px;
+      object-fit: cover;
+      background: rgba(255,255,255,0.03);
+      display: none;
+      border: 1px solid var(--border);
+      box-shadow: 0 12px 40px rgba(0,0,0,0.4);
+    }
+
+    /* ─── Content hero ─── */
+    .hero {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 24px;
+      padding-bottom: 22px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .hero-sub {
+      color: var(--muted);
+      font-size: 13px;
+      margin-top: 5px;
+    }
+
+    /* ─── Stat cards ─── */
+    .result-head {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 14px;
+      margin-bottom: 20px;
+    }
+
+    .stat {
+      padding: 20px;
+      border-radius: 18px;
+      background: rgba(56, 189, 248, 0.05);
+      border: 1px solid rgba(56, 189, 248, 0.12);
+      transition: border-color 0.3s, background 0.3s;
+    }
+
+    .stat:hover {
+      border-color: rgba(56, 189, 248, 0.26);
+      background: rgba(56, 189, 248, 0.09);
+    }
+
+    .stat .meta {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.09em;
+      color: var(--muted);
+    }
+
+    .stat strong {
+      display: block;
+      font-family: 'Syne', sans-serif;
+      font-size: 30px;
+      font-weight: 700;
+      margin-top: 8px;
+      background: linear-gradient(130deg, #e0eaff, var(--cyan));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    /* ─── Sub-cards ─── */
+    .sub-card {
+      padding: 22px;
+      border-radius: 20px;
+      background: var(--glass-2);
+      border: 1px solid var(--line);
+      margin-bottom: 16px;
+    }
+
+    .sub-card:last-child { margin-bottom: 0; }
+
+    .sub-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.10em;
+      color: var(--muted);
+      margin-bottom: 18px;
+    }
+
+    /* ─── Chart ─── */
+    .chart-wrap {
+      height: 280px;
+      display: flex;
+      gap: 12px;
+      align-items: flex-end;
+      padding-top: 8px;
+      overflow-x: auto;
+    }
+
+    .chart-wrap::-webkit-scrollbar { height: 3px; }
+    .chart-wrap::-webkit-scrollbar-track { background: transparent; }
+    .chart-wrap::-webkit-scrollbar-thumb { background: rgba(56,189,248,0.25); border-radius: 2px; }
+
+    .bar-group {
+      min-width: 58px;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .bar-value {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--cyan);
+    }
+
+    .bar {
+      width: 100%;
+      border-radius: 10px 10px 0 0;
+      min-height: 2px;
+      background: linear-gradient(180deg, var(--cyan) 0%, #6366f1 100%);
+      box-shadow: 0 0 16px rgba(56, 189, 248, 0.25);
+      position: relative;
+      overflow: hidden;
+      transition: height 0.65s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    .bar::after {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 38%;
+      background: rgba(255,255,255,0.14);
+      border-radius: 10px 10px 0 0;
+    }
+
+    .bar-label {
+      font-size: 11px;
+      text-align: center;
+      color: var(--muted);
+      word-break: break-word;
+    }
+
+    /* ─── Table ─── */
+    table { width: 100%; border-collapse: collapse; }
+
+    th, td {
+      text-align: left;
+      padding: 11px 10px;
+      border-bottom: 1px solid var(--line);
+      font-size: 13.5px;
+    }
+
+    th {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.09em;
+      color: var(--muted);
+    }
+
+    td:last-child, th:last-child { text-align: right; }
+
+    tr:hover td { background: rgba(56, 189, 248, 0.04); }
+
+    /* ─── Misc ─── */
+    .hidden { display: none; }
+
+    .empty {
+      text-align: center;
+      padding: 72px 24px;
+      color: var(--muted);
+      font-size: 14px;
+      opacity: 0.65;
+    }
+
+    .empty-icon {
+      width: 52px;
+      height: 52px;
+      margin: 0 auto 16px;
+      border-radius: 50%;
+      background: rgba(56,189,248,0.08);
+      border: 1px solid rgba(56,189,248,0.15);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .empty-icon svg { width: 24px; height: 24px; stroke: var(--cyan); fill: none; stroke-width: 1.5; }
+
+    @media (max-width: 900px) {
+      .page { grid-template-columns: 1fr; }
+      .result-head { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<canvas id="bg-canvas"></canvas>
+
+<main class="page">
+  <!-- ─── Sidebar ─── -->
+  <section class="card sidebar">
+    <div class="badge">
+      <span class="badge-dot"></span>
+      {{ "模型已就绪" if model_ready else "缺少模型文件" }}
+    </div>
+    <h1>图片分类预测</h1>
+    <p class="lead">上传图片，后端 Python 给出每个类别的概率分布，并用交互式直方图展示。</p>
+
+    <div class="upload-box">
+      <input id="imageInput" type="file" accept="image/*">
+      <button id="predictButton" {% if not model_ready %}disabled{% endif %}>开始预测</button>
+      <div id="status" class="status">
+        {% if model_ready %}
+          支持 JPG、PNG、JPEG 等常见图片格式。
+        {% else %}
+          请先运行训练脚本，生成 checkpoints/best_model.pth。
+        {% endif %}
+      </div>
+    </div>
+
+    <img id="preview" class="preview" alt="上传图片预览">
+  </section>
+
+  <!-- ─── Content ─── -->
+  <section class="card content">
+    <div class="hero">
+      <div>
+        <h2>预测结果</h2>
+        <p class="hero-sub">CIFAR-10 · 10 个类别</p>
+      </div>
+    </div>
+
+    <div id="resultPanel" class="hidden">
+      <div class="result-head">
+        <div class="stat">
+          <span class="meta">最高概率类别</span>
+          <strong id="topLabel">—</strong>
+        </div>
+        <div class="stat">
+          <span class="meta">预测概率</span>
+          <strong id="topProb">—</strong>
+        </div>
+      </div>
+
+      <div class="sub-card">
+        <div class="sub-label">类别概率直方图</div>
+        <div id="chart" class="chart-wrap"></div>
+      </div>
+
+      <div class="sub-card">
+        <div class="sub-label">完整概率明细</div>
+        <table>
+          <thead>
+            <tr><th>类别</th><th>概率</th></tr>
+          </thead>
+          <tbody id="resultTable"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="emptyState" class="empty">
+      <div class="empty-icon">
+        <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3 20.25h18A1.5 1.5 0 0022.5 18.75V6a1.5 1.5 0 00-1.5-1.5H3A1.5 1.5 0 001.5 6v12.75A1.5 1.5 0 003 20.25zm10.5-11.25h.008v.008h-.008V9z"/></svg>
+      </div>
+      上传图片后，这里会显示分类概率和柱状图
+    </div>
+  </section>
+</main>
+
+<!-- Three.js WebGL Background -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* ─── WebGL Nebula Background ─────────────────────────────────── */
+(function () {
+  try {
+    const canvas = document.getElementById('bg-canvas');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setClearColor(0x020c1b, 1);
+
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x020c1b, 0.00055);
+
+    const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 3000);
+    camera.position.z = 580;
+
+    function onResize() {
+      const W = innerWidth, H = innerHeight;
+      renderer.setSize(W, H);
+      camera.aspect = W / H;
+      camera.updateProjectionMatrix();
+    }
+    onResize();
+    addEventListener('resize', onResize);
+
+    /* ── Star field ── */
+    const STAR_COUNT = 5000;
+    const sPosArr = new Float32Array(STAR_COUNT * 3);
+    const sColArr = new Float32Array(STAR_COUNT * 3);
+    const palette = [
+      new THREE.Color(0x38bdf8), // cyan
+      new THREE.Color(0x818cf8), // violet
+      new THREE.Color(0x2563eb), // blue
+      new THREE.Color(0xe879f9), // pink
+      new THREE.Color(0xa5f3fc), // light cyan
+    ];
+
+    for (let i = 0; i < STAR_COUNT; i++) {
+      const r = 1100;
+      sPosArr[i * 3]     = (Math.random() - 0.5) * r * 2;
+      sPosArr[i * 3 + 1] = (Math.random() - 0.5) * r * 2;
+      sPosArr[i * 3 + 2] = (Math.random() - 0.5) * 900;
+      const t = Math.random();
+      const c = t < 0.45 ? palette[0] : t < 0.68 ? palette[2] : t < 0.82 ? palette[1] : t < 0.94 ? palette[4] : palette[3];
+      sColArr[i * 3] = c.r; sColArr[i * 3 + 1] = c.g; sColArr[i * 3 + 2] = c.b;
+    }
+
+    const starGeo = new THREE.BufferGeometry();
+    starGeo.setAttribute('position', new THREE.BufferAttribute(sPosArr, 3));
+    starGeo.setAttribute('color', new THREE.BufferAttribute(sColArr, 3));
+
+    const starMat = new THREE.PointsMaterial({ size: 1.5, vertexColors: true, transparent: true, opacity: 0.7, sizeAttenuation: true });
+    scene.add(new THREE.Points(starGeo, starMat));
+
+    /* ── Glowing orbs (layered concentric spheres) ── */
+    const orbDefs = [
+      { color: 0x0ea5c9, x: -260, y:  180, z: -420, r: 80  },
+      { color: 0x6366f1, x:  380, y: -130, z: -600, r: 110 },
+      { color: 0x0ea5c9, x:  130, y:  320, z: -800, r: 65  },
+      { color: 0x1e3a8a, x: -480, y: -260, z: -500, r: 95  },
+      { color: 0x7c3aed, x:  300, y:  260, z: -350, r: 55  },
+    ];
+
+    const orbs = [];
+    orbDefs.forEach((d, oi) => {
+      const group = { meshes: [], bx: d.x, by: d.y, phase: oi * 1.3 };
+      [1, 1.7, 2.8, 4.5].forEach((scale, si) => {
+        const geo = new THREE.SphereGeometry(d.r * scale, 14, 14);
+        const mat = new THREE.MeshBasicMaterial({
+          color: d.color,
+          transparent: true,
+          opacity: [0.10, 0.045, 0.018, 0.007][si],
+          depthWrite: false,
+        });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(d.x, d.y, d.z);
+        scene.add(mesh);
+        group.meshes.push(mesh);
+      });
+      orbs.push(group);
+    });
+
+    /* ── Mouse parallax ── */
+    let mx = 0, my = 0;
+    addEventListener('mousemove', e => {
+      mx = (e.clientX / innerWidth  - 0.5) * 2;
+      my = (e.clientY / innerHeight - 0.5) * 2;
+    });
+
+    /* ── Render loop ── */
+    let t = 0;
+    const stars = scene.children[0];
+
+    (function tick() {
+      requestAnimationFrame(tick);
+      t += 0.001;
+
+      stars.rotation.y = t * 0.04;
+      stars.rotation.x = t * 0.015;
+
+      camera.position.x += (mx * 55 - camera.position.x) * 0.025;
+      camera.position.y += (-my * 38 - camera.position.y) * 0.025;
+      camera.lookAt(0, 0, 0);
+
+      orbs.forEach((orb, i) => {
+        const angle = t * 0.28 + orb.phase;
+        orb.meshes.forEach(m => {
+          m.position.x = orb.bx + Math.sin(angle) * 38;
+          m.position.y = orb.by + Math.cos(angle * 1.4) * 26;
+        });
+      });
+
+      renderer.render(scene, camera);
+    })();
+  } catch (e) {
+    console.warn('WebGL init failed', e);
+  }
+})();
+
+/* ─── UI Logic ────────────────────────────────────────────────── */
+const imageInput   = document.getElementById('imageInput');
+const preview      = document.getElementById('preview');
+const predictBtn   = document.getElementById('predictButton');
+const statusEl     = document.getElementById('status');
+const resultPanel  = document.getElementById('resultPanel');
+const emptyState   = document.getElementById('emptyState');
+const topLabelEl   = document.getElementById('topLabel');
+const topProbEl    = document.getElementById('topProb');
+const resultTable  = document.getElementById('resultTable');
+const chart        = document.getElementById('chart');
+
+imageInput.addEventListener('change', () => {
+  const file = imageInput.files[0];
+  if (!file) { preview.style.display = 'none'; return; }
+  preview.src = URL.createObjectURL(file);
+  preview.style.display = 'block';
+  statusEl.textContent = `已选择：${file.name}`;
+  statusEl.className = 'status';
+});
+
+predictBtn.addEventListener('click', async () => {
+  const file = imageInput.files[0];
+  if (!file) {
+    statusEl.textContent = '请先选择一张图片。';
+    statusEl.className = 'status error';
+    return;
+  }
+
+  const fd = new FormData();
+  fd.append('image', file);
+
+  predictBtn.disabled = true;
+  statusEl.textContent = '正在调用模型预测…';
+  statusEl.className = 'status';
+
+  try {
+    const res = await fetch('/predict', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '预测失败');
+    renderResult(data);
+    statusEl.textContent = `模型: ${data.model_info.architecture} · 轮次: ${data.model_info.epoch ?? '-'}`;
+    statusEl.className = 'status';
+  } catch (err) {
+    statusEl.textContent = err.message;
+    statusEl.className = 'status error';
+  } finally {
+    predictBtn.disabled = false;
+  }
+});
+
+function renderResult(data) {
+  emptyState.classList.add('hidden');
+  resultPanel.classList.remove('hidden');
+
+  topLabelEl.textContent = data.top_prediction.label;
+  topProbEl.textContent  = `${data.top_prediction.probability.toFixed(2)}%`;
+
+  resultTable.innerHTML = '';
+  chart.innerHTML = '';
+
+  data.predictions.forEach((item, i) => {
+    /* Table row */
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${item.label}</td><td style="color:var(--cyan);font-weight:500">${item.probability.toFixed(2)}%</td>`;
+    resultTable.appendChild(tr);
+
+    /* Chart bar */
+    const grp = document.createElement('div');
+    grp.className = 'bar-group';
+    const h = Math.max(item.probability * 2.5, 2);
+    grp.innerHTML = `
+      <div class="bar-value">${item.probability.toFixed(1)}%</div>
+      <div class="bar" style="height:0;transition-delay:${i * 55}ms" data-h="${h}px"></div>
+      <div class="bar-label">${item.label}</div>`;
+    chart.appendChild(grp);
+  });
+
+  /* Animate bars on next frame */
+  requestAnimationFrame(() => {
+    document.querySelectorAll('.bar[data-h]').forEach(b => {
+      b.style.height = b.dataset.h;
+    });
+  });
+}
+</script>
+</body>
+</html>

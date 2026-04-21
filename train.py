@@ -1,5 +1,6 @@
 import os
 import time
+import json
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -35,6 +36,10 @@ CFG = {
     "num_workers": 2,
     "device": None,  # 自动选择：CUDA > MPS > CPU
     "save_dir": "./checkpoints",
+    "history_file": "training_history.json",
+    "summary_file": "training_summary.json",
+    "report_file": "classification_report.txt",
+    "last_ckpt_file": "last_model.pth",
 }
 
 CIFAR10_CLASSES = ["airplane", "automobile", "bird", "cat", "deer",
@@ -145,6 +150,25 @@ def topk_accuracy(output, target, topk=(1, 5)):
         return [correct[:k].reshape(-1).float().sum(0).item() * 100 / batch_size for k in topk]
 
 
+def save_json(data, path):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def build_checkpoint_payload(epoch, val_acc):
+    return {
+        "epoch": epoch,
+        "model": model.state_dict(),
+        "acc": val_acc,
+        "optimizer": optimizer.state_dict(),
+        "class_names": CIFAR10_CLASSES,
+        "mean": list(MEAN),
+        "std": list(STD),
+        "architecture": "ResNet18",
+        "num_classes": CFG["num_classes"],
+    }
+
+
 def run_epoch(loader, train=True):
     global model, optimizer, criterion, scaler
     model.train() if train else model.eval()
@@ -248,8 +272,7 @@ def main():
         flag = ""
         if va_top1 > best_acc:
             best_acc, best_epoch = va_top1, epoch + 1
-            torch.save({"epoch": epoch + 1, "model": model.state_dict(),
-                        "acc": va_top1, "optimizer": optimizer.state_dict()},
+            torch.save(build_checkpoint_payload(epoch + 1, va_top1),
                        f"{CFG['save_dir']}/best_model.pth")
             flag = " ★"
 
@@ -276,7 +299,8 @@ def main():
             all_labels.extend(labels.numpy())
 
     print("\n📋 分类报告：")
-    print(classification_report(all_labels, all_preds, target_names=CIFAR10_CLASSES))
+    report = classification_report(all_labels, all_preds, target_names=CIFAR10_CLASSES)
+    print(report)
 
     cm = confusion_matrix(all_labels, all_preds)
     fig, ax = plt.subplots(figsize=(10, 8))
@@ -307,6 +331,28 @@ def main():
     plt.tight_layout()
     plt.savefig("training_curves.png", dpi=150)
     print("▶ 训练曲线与混淆矩阵已保存。")
+
+    history_path = os.path.join(CFG["save_dir"], CFG["history_file"])
+    summary_path = os.path.join(CFG["save_dir"], CFG["summary_file"])
+    report_path = os.path.join(CFG["save_dir"], CFG["report_file"])
+    last_ckpt_path = os.path.join(CFG["save_dir"], CFG["last_ckpt_file"])
+
+    save_json(history, history_path)
+    save_json({
+        "best_epoch": best_epoch,
+        "best_val_top1": round(best_acc, 4),
+        "test_loss": round(te_loss, 4),
+        "test_top1": round(te_top1, 4),
+        "test_top5": round(te_top5, 4),
+        "class_names": CIFAR10_CLASSES,
+        "num_epochs": CFG["epochs"],
+        "device": CFG["device"],
+        "model_name": "ResNet18",
+    }, summary_path)
+    with open(report_path, "w", encoding="utf-8") as f:
+        f.write(report)
+    torch.save(build_checkpoint_payload(CFG["epochs"], te_top1), last_ckpt_path)
+    print(f"▶ 训练经验已保存到 {CFG['save_dir']} 目录。")
 
 
 if __name__ == "__main__":

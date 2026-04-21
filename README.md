@@ -12,6 +12,9 @@ cnn_project_advanced/
 ├── model.py          # ResNet-18 / ResidualBlock / BottleneckBlock
 ├── train.py          # 完整训练流程（含 AMP / LR Schedule / 混淆矩阵）
 ├── grad_cam.py       # Grad-CAM 可视化（CNN 在"看哪里"）
+├── app.py            # Flask Web 页面，支持上传图片并预测
+├── templates/
+│   └── index.html    # 上传图片 + 概率直方图页面
 ├── requirements.txt  # 依赖
 └── checkpoints/      # 自动创建，存放最优模型权重
 ```
@@ -24,6 +27,7 @@ cnn_project_advanced/
 pip install -r requirements.txt   # 安装依赖
 python train.py                   # 开始训练（CPU ~2h，GPU ~10min）
 python grad_cam.py                # 生成 Grad-CAM 热力图
+python app.py                     # 启动前端页面
 ```
 
 ---
@@ -94,6 +98,47 @@ python grad_cam.py                # 生成 Grad-CAM 热力图
 |------|-------------|
 | epoch=50, CPU | ~88-90% |
 | epoch=50, GPU | ~92-93% |
+
+---
+
+## 💾 训练经验保存
+
+训练结束后会把模型和训练过程一起保存到 `checkpoints/`：
+
+- `best_model.pth`：最佳验证集模型，可直接用于推理页面
+- `last_model.pth`：最后一轮模型
+- `training_history.json`：每一轮的 loss / accuracy / lr
+- `training_summary.json`：最佳轮次、测试集指标、类别信息
+- `classification_report.txt`：测试集分类报告
+
+---
+
+## 🌐 Web 图片预测页面
+
+1. 先训练出模型：
+
+```bash
+python train.py
+```
+
+2. 启动页面：
+
+```bash
+python app.py
+```
+
+3. 打开浏览器访问：
+
+```text
+http://127.0.0.1:5000
+```
+
+页面支持：
+
+- 上传本地图片
+- 后端 Python 调用训练好的模型预测类别概率
+- 展示“类别 A/B/... 各占多少概率”
+- 用直方图显示所有类别概率分布
 
 ---
 
