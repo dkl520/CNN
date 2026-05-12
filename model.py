@@ -30,7 +30,9 @@ class ResidualBlock(nn.Module):
         # 第一层卷积：负责可能的降采样（当 stride=2 时）
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3,
                                stride=stride, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(out_channels) # 归一化，加速收敛并减少过拟合
+
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        # 归一化，加速收敛并减少过拟合
 
         # 第二层卷积：保持通道数和尺寸不变
         self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3,
@@ -157,6 +159,7 @@ class ResNet(nn.Module):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 # 卷积层：Kaiming 正态分布
+                # 这是卷积核数值 初始化
                 nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
             elif isinstance(m, nn.BatchNorm2d):
                 # BN 层：权重设为 1，偏置设为 0

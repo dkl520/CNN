@@ -1,3 +1,162 @@
+# 🔬 Advanced CNN Project: CIFAR-10 Classification + Grad-CAM Visualization
+
+This project trains an image classifier on CIFAR-10 using a custom **ResNet-18** residual network, with a target accuracy of >= 92%.
+It includes production-style training techniques and Grad-CAM interpretability analysis.
+
+---
+
+## 📁 Project Structure
+
+```
+cnn_project_advanced/
+├── model.py          # ResNet-18 / ResidualBlock / BottleneckBlock
+├── train.py          # Complete training pipeline with AMP / LR schedule / confusion matrix
+├── grad_cam.py       # Grad-CAM visualization: where the CNN is looking
+├── app.py            # Flask web page for image upload and prediction
+├── templates/
+│   └── index.html    # Image upload page with probability histogram
+├── requirements.txt  # Dependencies
+└── checkpoints/      # Automatically created directory for best model weights
+```
+
+---
+
+## 🚀 Quick Start
+
+```bash
+pip install -r requirements.txt   # Install dependencies
+python train.py                   # Start training: CPU ~2h, GPU ~10min
+python grad_cam.py                # Generate Grad-CAM heatmaps
+python app.py                     # Start the web frontend
+```
+
+---
+
+## 🏗️ Network Architecture
+
+```
+Input [B x 3 x 32 x 32]  <- CIFAR-10 color image
+        │
+   Conv3x3 -> BN -> ReLU  <- Stem optimized for small images, no 7x7 conv
+        │
+   ┌────┴────────────────────────┐
+   │  ResidualBlock x 2          │  Layer1: 64 channels
+   │  ┌──────────────┐           │
+   │  │  Conv -> BN  │           │
+   │  │  -> ReLU     │           │
+   │  │  Conv -> BN  │           │
+   │  └──────┬───────┘           │
+   │      [+] <- Shortcut        │  <- Core idea: x + F(x)
+   └─────────────────────────────┘
+        │
+   Layer2: 128 channels, stride=2 downsampling
+   Layer3: 256 channels, stride=2
+   Layer4: 512 channels, stride=2
+        │
+   AdaptiveAvgPool -> Flatten -> FC(512->10)
+        │
+   Output 10-class logits
+```
+
+---
+
+## ⚙️ Advanced Training Techniques
+
+| Technique | Principle | Effect |
+|------|------|------|
+| **Residual Connections** | x + F(x), a direct path for gradients | Enables deeper networks and reduces vanishing gradients |
+| **BatchNorm** | Normalizes activation distributions in each layer | Speeds up convergence and allows a larger LR |
+| **Data Augmentation** | RandomCrop + Flip + ColorJitter | Expands the training set and prevents overfitting |
+| **Cutout** | Randomly masks a region of the image | Prevents the network from relying on local features only |
+| **Label Smoothing** | Softens one-hot labels | Reduces overfitting and improves generalization |
+| **SGD + Nesterov** | Momentum optimization with lookahead | Usually reaches higher final accuracy than Adam on CV tasks |
+| **Cosine Annealing** | Decreases LR from high to low following a cosine curve | Helps avoid poor local optima |
+| **Linear Warmup** | Increases LR linearly from 0 during the first 5 epochs | Prevents gradient explosion early in training |
+| **Mixed Precision AMP** | FP16 computation + FP32 parameters | Improves GPU training speed by 2-3x |
+| **Gradient Clipping** | Scales gradients when ‖g‖ > 1 | Prevents gradient explosion |
+
+---
+
+## 🔍 Grad-CAM Interpretation
+
+After running `grad_cam.py`, each image will include a heatmap overlay:
+
+- **Red regions** = areas the network focuses on most, contributing the most to the predicted class
+- **Blue regions** = background areas the network pays little attention to
+- **Green title** = correct prediction / **red title** = incorrect prediction
+
+**Example interpretation**:
+- Prediction `cat` -> heatmap focuses on ears and eyes ✅ reasonable
+- Prediction `automobile` -> heatmap focuses on wheels and headlights ✅ reasonable
+- Incorrect prediction -> heatmap may focus on the background, showing that the model was distracted
+
+---
+
+## 📈 Expected Results
+
+| Condition | Top-1 Accuracy |
+|------|-------------|
+| epoch=50, CPU | ~88-90% |
+| epoch=50, GPU | ~92-93% |
+
+---
+
+## 💾 Saved Training Outputs
+
+After training finishes, the model and training process are saved to `checkpoints/`:
+
+- `best_model.pth`: best validation model, ready to use in the inference web page
+- `last_model.pth`: model from the final epoch
+- `training_history.json`: loss / accuracy / lr for each epoch
+- `training_summary.json`: best epoch, test metrics, and class information
+- `classification_report.txt`: classification report on the test set
+
+---
+
+## 🌐 Web Image Prediction Page
+
+1. Train a model first:
+
+```bash
+python train.py
+```
+
+2. Start the web page:
+
+```bash
+python app.py
+```
+
+3. Open this URL in a browser:
+
+```text
+http://127.0.0.1:5000
+```
+
+The page supports:
+
+- Uploading local images
+- Calling the trained model from the Python backend to predict class probabilities
+- Showing how much probability each class A/B/... receives
+- Displaying the probability distribution for all classes as a histogram
+
+---
+
+## 🧪 Further Exploration
+
+```python
+# 1. Switch to a deeper network
+model = ResNet34()   # Already implemented in model.py
+
+# 2. Use stronger data augmentation; requires torchvision >= 0.12
+transforms.AutoAugment(policy=transforms.AutoAugmentPolicy.CIFAR10)
+
+# 3. Visualize Grad-CAM for different layers to compare shallow/deep attention
+target_layer = model.layer2[-1].conv2   # A shallower layer
+```
+
+---
+
 # 🔬 高级 CNN 项目：CIFAR-10 分类 + Grad-CAM 可视化
 
 基于自建 **ResNet-18**（残差网络），在 CIFAR-10 上训练图像分类器，目标准确率 ≥ 92%。
